@@ -73,6 +73,29 @@ def notify(msg):
     try: subprocess.Popen(["notify-send", "-i", "system-software-update", "Update Tray", msg])
     except Exception: pass
 
+def parse_sim(text):
+    """Reads the output of `apt-get -s upgrade|full-upgrade`: how many packages would really be installed, which are held back,
+    which are deferred by Ubuntu's phased rollout, which new packages would be pulled in and which removed."""
+    r = {"install": [], "new": [], "remove": [], "kept": [], "phased": []}
+    block = None
+    heads = {"The following NEW packages will be installed": "new", "The following packages will be REMOVED": "remove",
+             "The following packages have been kept back": "kept", "The following upgrades have been deferred due to phasing": "phased"}
+    for ln in text.splitlines():
+        if ln.startswith("Inst "): r["install"].append(ln.split()[1]); block = None; continue
+        h = ln.rstrip(":")
+        if h in heads or ln.rstrip(":") in heads: block = heads[ln.rstrip(":")]; continue
+        if ln.startswith("  ") and block: r[block] += ln.split()
+        else: block = None
+    return r
+
+def short_ver(old, new, width=14):
+    """Version change that shows the part that differs (a long common prefix would hide it): 25.2.8-0ubuntu0.24.04.2 -> ...04.3."""
+    i = 0
+    while i < min(len(old), len(new)) and old[i] == new[i]: i += 1
+    i = max(0, i - 3)
+    f = lambda v: ("…" if i else "") + v[i:i + width]
+    return f(old), f(new)
+
 # ------------------------------------------------------------------ model
 class Model:
     def __init__(self):
@@ -82,6 +105,7 @@ class Model:
         self.session_start = 0; self.offset = 0; self.last_line = ""; self.runner = None
         self.reboot = os.path.exists("/var/run/reboot-required")
         self.done_at = 0; self.installed_n = 0; self.authing = False; self.log = None
+        self.sim = {"upgrade": parse_sim(""), "full": parse_sim("")}; self.report = None
         self.refresh_pending()
 
     # ---- pending list (no root needed) ----
@@ -96,15 +120,36 @@ class Model:
                 for ln in out.splitlines():
                     m = re.match(r"^(\S+?)/(\S+) (\S+) \S+ \[upgradable from: (\S+)\]", ln)
                     if m: res.append((m.group(1), m.group(4), m.group(3), "security" in m.group(2)))
+                env = dict(os.environ, LC_ALL="C")
+                sim = {}
+                for k, cmd in ("upgrade", "upgrade"), ("full", "full-upgrade"):
+                    try: sim[k] = parse_sim(subprocess.run(["apt-get", "-s", cmd], capture_output=True, text=True, env=env, timeout=120).stdout)
+                    except Exception: sim[k] = parse_sim("")
+                GLib.idle_add(self.set_sim, sim)
                 GLib.idle_add(self.set_pending, res)
             except Exception as e:
                 GLib.idle_add(self.set_pending, None, str(e))
         threading.Thread(target=work, daemon=True).start()
+    def set_sim(self, sim): self.sim = sim; return False
     def set_pending(self, res, err=None):
         self.checking = False
         if res is None: self.error = err
         else: self.pending = res; self.error = None
-        self.reboot = os.path.exists("/var/run/reboot-required"); return False
+        self.reboot = os.path.exists("/var/run/reboot-required")
+        if self.report and res is not None:
+            msg, self.report = self.explain(after=True), None
+            if msg: notify(msg)
+        return False
+    def explain(self, after=False):
+        """One honest sentence about why updates are (not) installable right now."""
+        u, f = self.sim["upgrade"], self.sim["full"]
+        left = len(self.pending)
+        if not left: return "Everything is up to date." if after else ""
+        parts = []
+        if u["install"]: parts.append(f"{len(u['install'])} can be installed now")
+        if u["kept"]: parts.append(f"{len(u['kept'])} held back (need new packages: full-upgrade)")
+        if u["phased"]: parts.append(f"{len(u['phased'])} phased by Ubuntu (arrive within days)")
+        return (("Done. " if after else "") + f"{left} still pending: " + ", ".join(parts)) if parts else ""
 
     # ---- watch apt/dpkg activity ----
     def procs_busy(self): return procs_busy()
@@ -293,11 +338,11 @@ def draw_panel(c, W, H, m, t, rows=8, born=0):
     c.set_source_rgba(.8, .85, .95, .9)
     sec = sum(1 for p in m.pending if p[3])
     sub = {"busy": f"{sum(1 for v in m.stages.values() if v == 'done')} of {m.total} packages — {m.current or '…'}",
-           "updates": f"{len(m.pending)} package(s) to upgrade" + (f", {sec} security" if sec else ""),
+           "updates": f"{len(m.pending)} package(s) to upgrade" + (f", {sec} security" if sec else "") + (f" · {len(m.sim['upgrade']['install'])} now" if m.sim["upgrade"]["install"] or m.sim["upgrade"]["kept"] or m.sim["upgrade"]["phased"] else ""),
            "uptodate": "Nothing to upgrade.", "checking": "Reading package lists…",
            "reboot": "A restart is needed to finish updates.", "error": m.error or ""}[st]
     c.move_to(96, 62); c.show_text(sub[:70])
-    if st == "busy" or m.progress() > 0:
+    if st == "busy":
         rrect(c, 96, 72, W - 122, 8, 4); c.set_source_rgba(1, 1, 1, .1); c.fill()
         pw = max(8, (W - 122) * m.progress()); rrect(c, 96, 72, pw, 8, 4)
         pg = cairo.LinearGradient(96, 0, 96 + pw, 0); pg.add_color_stop_rgb(0, *pastel(t * .2, .45)); pg.add_color_stop_rgb(1, *pastel(t * .2 + .4, .55)); c.set_source(pg); c.fill()
@@ -314,11 +359,14 @@ def draw_panel(c, W, H, m, t, rows=8, born=0):
         sc = STAGE_COL[stage]; pulse = .6 + .4 * math.sin(t * 8) if stage in ("unpacking", "configuring") else 1
         c.set_source_rgba(*sc, pulse * appear); c.arc(32 + xo, yy - 4, 4.5, 0, 6.283); c.fill()
         c.set_source_rgba(.95, .97, 1, appear); c.move_to(44 + xo, yy); c.show_text(n[:34])
-        info = stage if m.busy else next((f"{p[1][:14]} -> {p[2][:14]}" for p in m.pending if p[0] == n), "")
+        info = stage if m.busy else next(("%s -> %s" % short_ver(p[1], p[2]) for p in m.pending if p[0] == n), "")
         c.set_source_rgba(.7, .76, .88, .9 * appear); ex = c.text_extents(info)
         c.move_to(W - 30 - ex.width + xo, yy); c.show_text(info)
     if len(names) > rows:
         c.set_source_rgba(.7, .76, .88, .8); c.move_to(24, y0 + rows * 24 + 4); c.show_text(f"+ {len(names) - rows} more…")
+    if st == "updates" and not m.busy:
+        note = m.explain()
+        if note: c.set_source_rgba(1, .86, .62, .95); c.set_font_size(11); c.move_to(20, H - 16); c.show_text(note[:86])
     if m.last_line and (m.busy or m.runner):
         c.set_source_rgba(.6, .8, 1, .9); c.set_font_size(11); c.move_to(20, H - 16); c.show_text(m.last_line[:80])
 
@@ -449,16 +497,36 @@ class Tray:
         mn.show_all(); return mn
     def do_update(self, *a):
         self.m.run_root(["update"], "Refreshing package lists…")
+    def ask(self, title, text, ok="OK", cancel=True):
+        d = Gtk.MessageDialog(message_type=Gtk.MessageType.QUESTION if cancel else Gtk.MessageType.INFO,
+                              buttons=Gtk.ButtonsType.OK_CANCEL if cancel else Gtk.ButtonsType.OK, text=title)
+        d.format_secondary_text(text); d.set_keep_above(True); d.set_position(Gtk.WindowPosition.CENTER)
+        d.get_widget_for_response(Gtk.ResponseType.OK).set_label(ok)
+        r = d.run(); d.destroy(); return r == Gtk.ResponseType.OK
     def confirm(self, what):
         n = len(self.m.pending)
-        d = Gtk.MessageDialog(message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.OK_CANCEL,
-                              text=f"{what} {n} package{'s' if n != 1 else ''}?")
-        d.format_secondary_text("You will be asked for your password. Keep the laptop on power during the install.")
-        d.set_keep_above(True); d.set_position(Gtk.WindowPosition.CENTER); r = d.run(); d.destroy(); return r == Gtk.ResponseType.OK
+        return self.ask(f"{what} {n} package{'s' if n != 1 else ''}?", "You will be asked for your password. Keep the laptop on power during the install.")
     def do_upgrade(self, *a):
-        if self.confirm("Install updates for"): self.m.run_root(["upgrade"], "Installing updates…")
+        u, f = self.m.sim["upgrade"], self.m.sim["full"]
+        if not self.m.pending: self.ask("Everything is up to date", "There is nothing to install.", cancel=False); return
+        if u["install"]:                                              # a normal upgrade has something to do
+            self.m.report = True
+            if self.confirm(f"Install updates for"): self.m.run_root(["upgrade"], "Installing updates…")
+            else: self.m.report = None
+            return
+        if u["kept"] and f["install"] and not f["remove"]:           # held back only because new packages are needed: full-upgrade is safe
+            new = ", ".join(f["new"][:4]) or "none"
+            if self.ask("A plain upgrade would install nothing", f"{len(u['kept'])} packages are held back because they need {len(f['new'])} new package(s) ({new}).\n\n"
+                        f"A full-upgrade installs them: {len(f['install'])} to install, 0 to remove. Run it?", "Run full-upgrade"):
+                self.m.report = True; self.m.run_root(["full-upgrade"], "Installing updates (full)…")
+            return
+        if u["kept"] and f["remove"]:
+            self.ask("Held back — needs a decision", f"{len(u['kept'])} packages are held back and a full-upgrade would REMOVE: {', '.join(f['remove'][:6])}.\nNothing was changed. Review it in a terminal (sudo apt full-upgrade).", cancel=False); return
+        self.ask("Nothing can be installed right now", f"{len(u['phased'])} update(s) are phased by Ubuntu (a staged rollout, e.g. {', '.join(u['phased'][:3])}); they arrive automatically within a few days.", cancel=False)
     def do_full(self, *a):
-        if self.confirm("Full-upgrade"): self.m.run_root(["full-upgrade"], "Installing updates (full)…")
+        f = self.m.sim["full"]
+        if f["remove"] and not self.ask("Full-upgrade will REMOVE packages", f"It would remove: {', '.join(f['remove'][:8])}.\nContinue?", "Continue"): return
+        if self.confirm("Full-upgrade"): self.m.report = True; self.m.run_root(["full-upgrade"], "Installing updates (full)…")
 
 def single_instance():
     """Only one tray icon per user (autostart + a manual start would otherwise draw two)."""

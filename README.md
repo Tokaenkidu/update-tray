@@ -13,13 +13,14 @@ No more staring at a frozen progress bar wondering "is it stuck?".
 - **Lively states** — *updates available · busy · checking · up to date · reboot required · error*, each with its own animation. Resident daemons (`packagekitd`, `unattended-upgrade-shutdown`) are not mistaken for real work.
 - **Hover card + monitor window** — hover for a quick summary, click for the live package-by-package monitor.
 - **Run updates from the tray** — `apt update` / `upgrade` / `full-upgrade` through **polkit (`pkexec`)** with a confirmation dialog. It **never** upgrades anything on its own: you click, you confirm, you type your password. Your own config files are kept (`--force-confold`).
+- **Understands "held back" updates** — when a plain `apt upgrade` would install nothing (packages *kept back* because they need a new dependency, or *phased* by Ubuntu's staged rollout) the tray tells you exactly why and offers a safe **full-upgrade** (and never runs one silently if it would remove packages), instead of silently doing nothing.
 - **One icon only** — starting it twice (autostart + manual) does not create two icons.
 - **Falls back gracefully** to a normal square tray icon if the panel has no wide-icon support, and to a visible terminal if no password prompt appears.
 
 ## 📦 Install
 
 ```bash
-sudo dpkg -i update-tray_1.1.1_all.deb
+sudo dpkg -i update-tray_1.2.0_all.deb
 sudo apt -f install        # only if dpkg reports missing dependencies
 update-tray &              # or log out/in: it autostarts
 ```
@@ -29,7 +30,7 @@ Remove: `sudo apt remove update-tray`.
 
 ## 🧪 Tested
 
-`tests/test_update_tray.py` covers `apt list` parsing, dpkg-log stage tracking, state priorities, "resident daemons are not busy", the single-instance lock, terminal fallback commands and drawing of every icon state. Run it with `python3 tests/test_update_tray.py` (needs an X display).
+`tests/test_update_tray.py` (15 tests) covers `apt list` parsing, held-back / phased / full-upgrade decisions on real apt output, dpkg-log stage tracking, state priorities, "resident daemons are not busy", the single-instance lock, terminal fallback commands and drawing of every icon state. Run it with `python3 tests/test_update_tray.py` (needs an X display).
 
 ## 🛠️ Run from source
 
