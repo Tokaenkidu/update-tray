@@ -375,11 +375,13 @@ def draw_panel(c, W, H, m, t, rows=8, born=0):
         c.move_to(W - 30 - ex.width + xo, yy); c.show_text(info)
     if len(names) > rows:
         c.set_source_rgba(.7, .76, .88, .8); c.move_to(24, y0 + rows * 24 + 4); c.show_text(f"+ {len(names) - rows} more…")
-    if st == "updates" and not m.busy:
+    # ONE line at the bottom: the live apt output while something runs, otherwise why updates are (not) installable (never both on top of each other)
+    running = m.busy or (m.runner is not None and m.runner.poll() is None)
+    if running and m.last_line:
+        c.set_source_rgba(.6, .8, 1, .9); c.set_font_size(11); c.move_to(20, H - 16); c.show_text(m.last_line[:80])
+    elif st == "updates":
         note = m.explain()
         if note: c.set_source_rgba(1, .86, .62, .95); c.set_font_size(11); c.move_to(20, H - 16); c.show_text(note[:86])
-    if m.last_line and (m.busy or m.runner):
-        c.set_source_rgba(.6, .8, 1, .9); c.set_font_size(11); c.move_to(20, H - 16); c.show_text(m.last_line[:80])
 
 # ------------------------------------------------------------------ UI
 class MonitorWindow(Gtk.Window):
@@ -533,7 +535,7 @@ class Tray:
             return
         if u["kept"] and f["remove"]:
             self.ask("Held back — needs a decision", f"{len(u['kept'])} packages are held back and a full-upgrade would REMOVE: {', '.join(f['remove'][:6])}.\nNothing was changed. Review it in a terminal (sudo apt full-upgrade).", cancel=False); return
-        self.ask("Nothing can be installed right now", f"{len(u['phased'])} update(s) are phased by Ubuntu (a staged rollout, e.g. {', '.join(u['phased'][:3])}); they arrive automatically within a few days.", cancel=False)
+        self.ask("Nothing can be installed right now", f"{len(u['phased'])} update(s) are phased by Ubuntu (a staged rollout, e.g. {', '.join(u['phased'][:3])}); they arrive automatically within a few days.\n\n(To install them right now anyway: sudo apt-get -o APT::Get::Always-Include-Phased-Updates=true upgrade)", cancel=False)
     def do_full(self, *a):
         f = self.m.sim["full"]
         if f["remove"] and not self.ask("Full-upgrade will REMOVE packages", f"It would remove: {', '.join(f['remove'][:8])}.\nContinue?", "Continue"): return

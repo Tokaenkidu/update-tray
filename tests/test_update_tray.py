@@ -131,4 +131,28 @@ class T3(unittest.TestCase):
         try: self.assertFalse(ut.procs_busy())
         finally: p.kill(); p.wait()
 
+class T4(unittest.TestCase):
+    def test_bottom_line_is_drawn_once(self):
+        import cairo
+        calls = []
+        class Spy(cairo.Context):
+            pass
+        m = FakeModel(); m.pending = [("a", "1", "2", False)]
+        m.sim = {"upgrade": {**ut.parse_sim(""), "phased": ["a"]}, "full": ut.parse_sim("")}
+        m.last_line = "Processing triggers for libc-bin"          # stale line of a finished run
+        m.runner = types.SimpleNamespace(poll=lambda: 0)          # finished process object
+        surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, 560, 380); ctx = cairo.Context(surf)
+        texts = []
+        orig = cairo.Context.show_text
+        # count how many texts end up at the bottom line (y = H - 16)
+        class Ctx:
+            def __init__(s, c): s.c = c
+            def __getattr__(s, n): return getattr(s.c, n)
+            def move_to(s, x, y): s.last = y; return s.c.move_to(x, y)
+            def show_text(s, t):
+                if abs(getattr(s, "last", 0) - (380 - 16)) < 1: texts.append(t)
+                return s.c.show_text(t)
+        ut.draw_panel(Ctx(ctx), 560, 380, m, 1.5, rows=10, born=0)
+        self.assertEqual(len(texts), 1); self.assertIn("phased", texts[0])        # the explanation, not the stale apt line
+
 if __name__ == "__main__": unittest.main(verbosity=2)

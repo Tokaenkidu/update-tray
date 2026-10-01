@@ -20,7 +20,7 @@ No more staring at a frozen progress bar wondering "is it stuck?".
 ## 📦 Install
 
 ```bash
-sudo dpkg -i update-tray_1.2.1_all.deb
+sudo dpkg -i update-tray_1.2.2_all.deb
 sudo apt -f install        # only if dpkg reports missing dependencies
 update-tray &              # or log out/in: it autostarts
 ```
@@ -30,7 +30,7 @@ Remove: `sudo apt remove update-tray`.
 
 ## 🧪 Tested
 
-`tests/test_update_tray.py` (19 tests) covers `apt list` parsing, held-back / phased / full-upgrade decisions on real apt output, dpkg-log stage tracking, state priorities, "resident daemons are not busy", the single-instance lock, terminal fallback commands and drawing of every icon state. Run it with `python3 tests/test_update_tray.py` (needs an X display).
+`tests/test_update_tray.py` (20 tests) covers `apt list` parsing, held-back / phased / full-upgrade decisions on real apt output, dpkg-log stage tracking, state priorities, "resident daemons are not busy", the single-instance lock, terminal fallback commands and drawing of every icon state. Run it with `python3 tests/test_update_tray.py` (needs an X display).
 
 ## 🛠️ Run from source
 
