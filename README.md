@@ -43,6 +43,15 @@ python3 src/update_tray.py
 - Needs an **X11 session** with a system tray (MATE, Cinnamon, XFCE, …). On pure Wayland panels the XEmbed tray icon is not available.
 - Young project. If *Install updates* ever does nothing, look at `~/.cache/update-tray/update-tray.log` — and please open an issue!
 
+## ⭐ Reviews & feedback — we'd love to hear from you!
+
+Tried it? **Please tell us what you think** — a short review helps other Linux users find it, and your ideas decide what comes next:
+
+- 💬 **Leave a review or an idea** in the [Discussions](../../discussions) (your distro, panel and what you liked or missed),
+- 🐛 **Found a bug?** [Open an issue](../../issues/new) — screenshots welcome,
+- ⭐ **Star the repo** and **share it** with a fellow Linux user,
+- 🌍 Pull requests, translations and new animation ideas are very welcome.
+
 ## 🙏 Thanks
 
 A huge **thank you** to everyone who makes this possible and makes Linux a joy:

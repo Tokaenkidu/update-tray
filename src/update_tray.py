@@ -466,7 +466,7 @@ def single_instance():
     os.makedirs(LOG_DIR, mode=0o700, exist_ok=True)
     f = open(os.path.join(LOG_DIR, "lock"), "w")
     try: fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError: return None
+    except OSError: f.close(); return None
     return f
 
 if __name__ == "__main__":
