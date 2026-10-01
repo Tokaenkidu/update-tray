@@ -27,6 +27,17 @@ update-tray &              # or log out/in: it autostarts
 Dependencies: `python3`, `python3-gi`, `python3-gi-cairo`, `gir1.2-gtk-3.0`, `python3-xlib`, `policykit-1` (pkexec).
 Remove: `sudo apt remove update-tray`.
 
+## 🧪 Tested
+
+`tests/test_update_tray.py` covers `apt list` parsing, dpkg-log stage tracking, state priorities, "resident daemons are not busy", the single-instance lock, terminal fallback commands and drawing of every icon state. Run it with `python3 tests/test_update_tray.py` (needs an X display).
+
+## 🛠️ Run from source
+
+```bash
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 python3-xlib policykit-1
+python3 src/update_tray.py
+```
+
 ## ⚠️ Honest notes
 
 - Needs an **X11 session** with a system tray (MATE, Cinnamon, XFCE, …). On pure Wayland panels the XEmbed tray icon is not available.
