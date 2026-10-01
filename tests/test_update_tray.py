@@ -39,6 +39,7 @@ class T(unittest.TestCase):
     def test_log_is_private_and_not_in_tmp(self):
         self.assertFalse(ut.LOG_FILE.startswith("/tmp"))
     def test_single_instance_lock(self):
+        import tempfile; ut.LOG_DIR = tempfile.mkdtemp()      # not the real lock: a tray may be running right now
         a = ut.single_instance(); self.assertIsNotNone(a)
         self.assertIsNone(ut.single_instance())   # a second one is refused
         a.close()
@@ -112,5 +113,22 @@ class T2(unittest.TestCase):
         self.m.sim = {"upgrade": ut.parse_sim(UPGRADE), "full": ut.parse_sim(FULL)}
         e = self.m.explain(); self.assertIn("7 held back", e); self.assertIn("1 phased", e)
         self.assertEqual(ut.short_ver("25.2.8-0ubuntu0.24.04.2", "25.2.8-0ubuntu0.24.04.3"), ("…04.2", "…04.3"))
+
+class T3(unittest.TestCase):
+    def test_simulations_are_not_install_sessions(self):
+        for cmd in ("apt-get -s upgrade", "apt-get -s full-upgrade", "apt-get --simulate upgrade", "apt-get --dry-run install foo", "dpkg --dry-run -i x.deb"):
+            self.assertFalse(ut.is_real_apt_session(cmd.split()[0], cmd), cmd)
+    def test_real_sessions_are_detected(self):
+        for comm, cmd in (("apt-get", "apt-get -y upgrade"), ("apt", "apt full-upgrade"), ("apt-get", "apt-get -y -o Dpkg::Options::=--force-confold full-upgrade"),
+                          ("dpkg", "/usr/bin/dpkg --status-fd 20 --configure -a"), ("aptitude", "aptitude safe-upgrade"), ("apt-get", "apt-get install -y x")):
+            self.assertTrue(ut.is_real_apt_session(comm, cmd), cmd)
+    def test_queries_and_resident_daemons_are_idle(self):
+        for comm, cmd in (("apt", "apt list --upgradable"), ("apt-get", "apt-get -s upgrade"), ("unattended-upgr", "/usr/bin/python3 /usr/share/unattended-upgrades/unattended-upgrade-shutdown --wait-for-signal")):
+            self.assertFalse(ut.is_real_apt_session(comm, cmd), cmd)
+    def test_our_own_simulation_child_does_not_make_the_tray_busy(self):
+        import subprocess as sp, time
+        p = sp.Popen(["bash", "-c", "exec -a apt-get sleep 2"]); time.sleep(0.3)
+        try: self.assertFalse(ut.procs_busy())
+        finally: p.kill(); p.wait()
 
 if __name__ == "__main__": unittest.main(verbosity=2)

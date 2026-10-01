@@ -46,8 +46,20 @@ def confetti(c, W, H, age):
         c.save(); c.translate(x, y); c.rotate(age * 4 * (_pr(k, 4) - .5) + k); c.set_source_rgba(r, g, b, .95 * fade)
         c.rectangle(-4, -2, 8, 4); c.fill(); c.restore()
 
+SIMULATE = re.compile(r"(^|\s)(-s|--simulate|--just-print|--dry-run|--recon|--no-act)(\s|$)")
+
+def is_real_apt_session(comm, cmd):
+    """Does this process (comm + command line) really change packages? Read-only queries and SIMULATIONS (`apt-get -s upgrade`, which the tray
+    itself runs to explain what is installable) must not count - v1.2.0 treated its own simulation as an install and looped in "busy"."""
+    if "unattended-upgrade-shutdown" in cmd: return False
+    if comm in ("dpkg", "aptitude", "unattended-upgr"): return not SIMULATE.search(cmd)
+    if comm in ("apt", "apt-get"):
+        if SIMULATE.search(cmd): return False
+        return bool(re.search(r"\b(install|upgrade|full-upgrade|dist-upgrade|update|remove|purge|autoremove|reinstall)\b", cmd))
+    return False
+
 def procs_busy():
-    """True only while a package operation is really running (ignores resident daemons and read-only apt queries)."""
+    """True only while a package operation is really running (ignores resident daemons, read-only apt queries and our own simulations)."""
     me = os.getpid()
     for pid in os.listdir("/proc"):
         if not pid.isdigit() or int(pid) == me: continue
@@ -55,11 +67,10 @@ def procs_busy():
             with open(f"/proc/{pid}/comm") as f: comm = f.read().strip()
             if comm not in ("apt", "apt-get", "dpkg", "aptitude", "unattended-upgr"): continue
             with open(f"/proc/{pid}/cmdline") as f: cmd = f.read().replace("\0", " ")
+            with open(f"/proc/{pid}/stat") as f: ppid = int(f.read().rsplit(")", 1)[1].split()[1])
         except Exception: continue
-        if "unattended-upgrade-shutdown" in cmd: continue
-        if comm == "dpkg" or comm == "aptitude": return True
-        if comm == "unattended-upgr": return True
-        if comm in ("apt", "apt-get") and re.search(r"\b(install|upgrade|full-upgrade|dist-upgrade|update|remove|purge|autoremove|reinstall)\b", cmd): return True
+        if ppid == me: continue                     # our own children (apt list / simulations)
+        if is_real_apt_session(comm, cmd): return True
     return False
 
 def rrect(c, x, y, w, h, r):
